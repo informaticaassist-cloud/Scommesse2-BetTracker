@@ -1,0 +1,1 @@
+import {existsSync} from 'node:fs'; if(!existsSync('www/index.html')) throw new Error('Missing www/index.html'); console.log('Web assets ready');
