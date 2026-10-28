@@ -1,0 +1,1 @@
+{"name":"scommesse2-bet-tracker","version":"1.0.0","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","android:add":"npx cap add android","android:sync":"npx cap sync android"},"dependencies":{"@capacitor/core":"^7.4.0","@capacitor/android":"^7.4.0"},"devDependencies":{"@capacitor/cli":"^7.4.0"}}
