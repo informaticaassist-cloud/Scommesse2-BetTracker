@@ -1,1 +1,13 @@
-{"appId":"it.scommesse2.bettracker","appName":"Scommesse 2.0 Bet Tracker","webDir":"www","server":{"androidScheme":"https"}}
+{
+  "appId": "it.scommesse2.bettracker",
+  "appName": "Scommesse 2.0 Bet Tracker",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
