@@ -1,0 +1,27 @@
+{
+  "schedine": [
+    {
+      "id": "demo1",
+      "nome": "Schedina dimostrativa",
+      "puntata": 2,
+      "eventi": [
+        {
+          "casa": "Inter",
+          "trasferta": "Roma",
+          "campionato": "Serie A",
+          "data_partita": "2026-11-01",
+          "mercato": "1X",
+          "quota": 1.3
+        },
+        {
+          "casa": "Arsenal",
+          "trasferta": "Chelsea",
+          "campionato": "Premier League",
+          "data_partita": "2026-11-01",
+          "mercato": "Over 1.5",
+          "quota": 1.25
+        }
+      ]
+    }
+  ]
+}
