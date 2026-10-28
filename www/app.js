@@ -48,7 +48,18 @@ $('clearBtn').onclick=()=>{if(confirm('Eliminare archivio e risultati?')){db={ti
 $('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='scommesse2-archivio.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
 render();
 
-const LEAGUES={'seriea':'ita.1','serieaitaliana':'ita.1','premierleague':'eng.1','laliga':'esp.1','liga':'esp.1','bundesliga':'ger.1','ligue1':'fra.1','championsleague':'uefa.champions','uefachampionsleague':'uefa.champions','eflcup':'eng.league_cup','carabaocup':'eng.league_cup','englishleaguecup':'eng.league_cup','coppaItalia':'ita.coppa_italia'};
+const LEAGUES={
+'seriea':'ita.1','serieb':'ita.2','coppa italia':'ita.coppa_italia','coppaitalia':'ita.coppa_italia','supercoppa italiana':'ita.super_cup',
+'premierleague':'eng.1','championship':'eng.2','leagueone':'eng.3','leaguetwo':'eng.4','nationalleague':'eng.5','eflcup':'eng.league_cup','carabaocup':'eng.league_cup','leaguecup':'eng.league_cup','facup':'eng.fa','fa cup':'eng.fa','communityshield':'eng.charity',
+'laliga':'esp.1','liga':'esp.1','laliga2':'esp.2','segundadivision':'esp.2','copadelrey':'esp.copa_del_rey','supercopa':'esp.super_cup',
+'bundesliga':'ger.1','2bundesliga':'ger.2','dfbpokal':'ger.dfb_pokal','ligue1':'fra.1','ligue2':'fra.2','coupedefrance':'fra.coupe_de_france',
+'eredivisie':'ned.1','eerstedivisie':'ned.2','knvbbeker':'ned.cup','primeiraliga':'por.1','ligaportugal':'por.1','tacadeportugal':'por.taca_de_portugal',
+'belgianproleague':'bel.1','scottishpremiership':'sco.1','scottishcup':'sco.fa','superlig':'tur.1','superligaturca':'tur.1','superleaguegrecia':'gre.1',
+'championsleague':'uefa.champions','uefachampionsleague':'uefa.champions','europaleague':'uefa.europa','uefaeuropaleague':'uefa.europa','conferenceleague':'uefa.europa.conf','uefaconferenceleague':'uefa.europa.conf','uefasupercup':'uefa.super_cup','nationsleague':'uefa.nations',
+'worldcup':'fifa.world','mondiali':'fifa.world','europeanchampionship':'uefa.euro','euro':'uefa.euro','copalibertadores':'conmebol.libertadores','copasudamericana':'conmebol.sudamericana',
+'brasileiraoseriea':'bra.1','brasileirao':'bra.1','argentinaprimera':'arg.1','mls':'usa.1','ligamx':'mex.1','saudiproleague':'ksa.1'
+};
+const EXTRA_LEAGUES=['eng.league_cup','eng.fa','ita.coppa_italia','esp.copa_del_rey','ger.dfb_pokal','fra.coupe_de_france','uefa.champions','uefa.europa','uefa.europa.conf','eng.1','ita.1','esp.1','ger.1','fra.1'];
 const TEAM_ALIASES={'internazionale':'inter','intermilan':'inter','acmilan':'milan','asroma':'roma','ssclazio':'lazio','napoli':'napoli','sscnapoli':'napoli','manchesterunited':'manutd','manutd':'manutd','manchestercity':'mancity','mancity':'mancity','parissaintgermain':'psg','psg':'psg','bayernmunich':'bayern','bayernmunchen':'bayern','bayern':'bayern','atleticomadrid':'atletico','atleticodemadrid':'atletico','atletico':'atletico','fcbarcelona':'barcelona','realmadridcf':'realmadrid','juventusfc':'juventus','arsenalfc':'arsenal','chelseafc':'chelsea','liverpoolfc':'liverpool','tottenhamhotspur':'tottenham'};
 const teamNorm=s=>{const n=norm(s);return TEAM_ALIASES[n]||n.replace(/^(fc|ac|as|ssc|ss|cf)/,'').replace(/(fc|cf)$/,'')};
 function eventDate(e){const d=String(e.data_partita||e.date||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(d)?d.replace(/-/g,''):null}
@@ -61,14 +72,15 @@ async function updateScores(manual=false){
 if(syncing)return;if(!db.tickets.length){$('notice').textContent='Importa prima una schedina';return}
 const events=[...new Map(db.tickets.flatMap(t=>t.eventi).map(e=>[key(e),e])).values()];
 const groups=new Map();for(const e of events){const league=leagueOf(e),date=eventDate(e);if(!league||!date)continue;const id=league+'|'+date;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(e)}
+const unclassified=events.filter(e=>!leagueOf(e)&&eventDate(e));for(const e of unclassified){const date=eventDate(e);for(const league of EXTRA_LEAGUES){const id=league+'|'+date;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(e)}}
 if(!groups.size){$('notice').textContent='Nessuna partita riconosciuta: controlla campionato e formato data (AAAA-MM-GG)';return}
-syncing=true;$('refreshBtn').disabled=true;$('notice').textContent='Aggiornamento risultati in corso…';let changed=0,errors=0,found=0;const unsupported=events.filter(e=>!leagueOf(e)||!eventDate(e)).length;
+syncing=true;$('refreshBtn').disabled=true;$('notice').textContent='Aggiornamento risultati in corso…';let changed=0,errors=0,found=0;const unsupported=events.filter(e=>!eventDate(e)).length;
 for(const [group,es] of groups){const [league,date]=group.split('|');try{
 const url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+league+'/scoreboard?dates='+date+'&limit=100';
 const response=await (window.Capacitor?.Plugins?.CapacitorHttp?.get ? window.Capacitor.Plugins.CapacitorHttp.get({url,headers:{Accept:'application/json'}}) : fetch(url,{cache:'no-store'}));if(response.status<200||response.status>=300)throw Error('HTTP '+response.status);
 const data=typeof response.json==='function'?await response.json():response.data;if(!Array.isArray(data.events))throw Error('Risposta non valida');
 const games=data.events.map(parseGame).filter(Boolean);
-for(const e of es){const candidates=games.filter(g=>matches(e,g));if(candidates.length!==1)continue;found++;const g=candidates[0],k=key(e),old=db.results[k];if(old?.status==='finished'&&g.status!=='finished')continue;
+for(const e of es){const candidates=games.filter(g=>matches(e,g));if(candidates.length!==1)continue;if(db.results[key(e)]?.source==='ESPN'&&db.results[key(e)]?.updatedAt&&new Date(db.results[key(e)].updatedAt).getTime()>Date.now()-10000)continue;found++;const g=candidates[0],k=key(e),old=db.results[k];if(old?.status==='finished'&&g.status!=='finished')continue;
 const r={home:g.home,away:g.away,status:g.status,htHome:old?.htHome??null,htAway:old?.htAway??null,minute:g.minute,source:'ESPN',updatedAt:new Date().toISOString()};
 if(JSON.stringify([old?.home,old?.away,old?.status,old?.minute])!==JSON.stringify([r.home,r.away,r.status,r.minute]))changed++;
 db.results[k]=r;
