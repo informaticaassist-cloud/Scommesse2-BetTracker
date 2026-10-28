@@ -1,0 +1,49 @@
+'use strict';
+const KEY='scommesse2.bettracker.v1';
+let db={tickets:[],results:{}};
+try{const x=JSON.parse(localStorage.getItem(KEY));if(x&&Array.isArray(x.tickets))db={tickets:x.tickets,results:x.results||{}}}catch{}
+const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=x=>Number(x).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const key=e=>e.id_partita||e.match_id||[e.data_partita||e.date||'',norm(e.casa||e.home),norm(e.trasferta||e.away)].join('|');
+const labels={won:'🟢 Vinta',lost:'🔴 Persa',pending:'🟡 In attesa',void:'🔵 Annullata',unknown:'⚪ Da verificare'};
+function evaluate(e,r){
+if(!r||r.status==='scheduled'||r.status==='live')return 'pending';
+if(r.status==='void')return 'void';
+if(r.status!=='finished')return 'unknown';
+const h=Number(r.home),a=Number(r.away),total=h+a,m=String(e.mercato||e.market||'').trim().toUpperCase().replace(/,/g,'.').replace(/\s+/g,' ');
+let ok;
+if(m==='1')ok=h>a;else if(m==='X')ok=h===a;else if(m==='2')ok=h<a;else if(m==='1X')ok=h>=a;else if(m==='X2')ok=h<=a;else if(m==='12')ok=h!==a;
+else if(['GOAL','GG','BTTS SI','BTTS SÌ'].includes(m))ok=h>0&&a>0;
+else if(['NO GOAL','NOGOAL','NG','BTTS NO'].includes(m))ok=h===0||a===0;
+else{let z=m.match(/^(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);if(z)ok=z[1]==='OVER'?total>Number(z[2]):total<Number(z[2]);
+else{z=m.match(/^MULTIGOL\s*(\d+)\s*[-–]\s*(\d+)$/);if(z)ok=total>=Number(z[1])&&total<=Number(z[2]);
+else{z=m.match(/^(?:1T|HT)\s+(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);if(z&&r.htHome!=null&&r.htAway!=null){const t=Number(r.htHome)+Number(r.htAway);ok=z[1]==='OVER'?t>Number(z[2]):t<Number(z[2]);}}}}
+return ok===undefined?'unknown':ok?'won':'lost';
+}
+function stateOf(s){if(s.includes('lost'))return 'lost';if(s.includes('unknown'))return 'unknown';if(s.includes('pending'))return 'pending';if(s.every(x=>x==='void'))return 'void';return 'won'}
+function save(){localStorage.setItem(KEY,JSON.stringify(db));render()}
+function render(){
+let win=0,lose=0,pending=0;const root=$('list');root.innerHTML='';
+for(const [i,t] of db.tickets.entries()){
+const events=t.eventi,states=events.map(e=>evaluate(e,db.results[key(e)])),st=stateOf(states);
+if(st==='won')win++;else if(st==='lost')lose++;else pending++;
+const odds=events.reduce((v,e,j)=>v*(states[j]==='void'?1:Number(e.quota||e.odds||1)),1),stake=Number(t.puntata||0);
+const box=document.createElement('article');box.className='ticket';
+box.innerHTML='<div class="row"><h3>'+esc(t.nome||'Schedina')+' <small class="'+st+'">'+labels[st]+'</small></h3><button class="secondary" data-remove="'+i+'">Elimina</button></div><p class="muted">'+events.length+' eventi · Quota '+fmt(odds)+' · Puntata € '+fmt(stake)+' · Ritorno potenziale € '+fmt(stake*odds)+' · Utile potenziale € '+fmt(stake*(odds-1))+'</p><label>Puntata (€) <input type="number" min="0" step="0.01" value="'+stake+'" data-stake="'+i+'"></label>';
+for(const e of events){const k=key(e),r=db.results[k],s=evaluate(e,r),el=document.createElement('div');el.className='event';
+el.innerHTML='<div class="row"><div><b>'+esc(e.casa||e.home)+' – '+esc(e.trasferta||e.away)+'</b><br><small>'+esc(e.campionato||'')+' · '+esc(e.data_partita||'')+' '+esc(e.ora||'')+'</small><br><small>Mercato: '+esc(e.mercato||e.market)+' · bwin '+fmt(e.quota||e.odds||1)+'</small><br><span class="'+s+'">'+labels[s]+'</span> '+(r?'<small>('+esc(r.home)+'-'+esc(r.away)+' · '+esc(r.status)+')</small>':'')+'</div><button class="secondary" data-match="'+esc(k)+'">Risultato</button></div>';box.appendChild(el)}
+root.appendChild(box)}
+if(!db.tickets.length)root.innerHTML='<p class="muted">Nessuna schedina importata.</p>';
+$('stats').innerHTML='<div class="stat">Schedine<strong>'+db.tickets.length+'</strong></div><div class="stat">Vinte<strong class="won">'+win+'</strong></div><div class="stat">Perse<strong class="lost">'+lose+'</strong></div><div class="stat">In attesa / verifica<strong>'+pending+'</strong></div>';
+}
+$('importBtn').onclick=()=>$('file').click();
+$('file').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text()),arr=Array.isArray(j)?j:Array.isArray(j.schedine)?j.schedine:[j];let n=0;for(const raw of arr){if(!Array.isArray(raw.eventi)||!raw.eventi.length)continue;const es=raw.eventi.filter(e=>(e.casa||e.home)&&(e.trasferta||e.away)&&(e.mercato||e.market)&&Number(e.quota||e.odds)>0);if(es.length!==raw.eventi.length)continue;const id=String(raw.id||JSON.stringify(es));if(db.tickets.some(t=>t.id===id))continue;db.tickets.push({...raw,id,eventi:es});n++}if(!n)throw Error('Nessuna schedina nuova valida');$('notice').textContent='Importate '+n+' schedine';save()}catch(err){$('notice').textContent='Errore: '+err.message}ev.target.value=''};
+let selected=null;
+$('list').onclick=e=>{const rm=e.target.closest('[data-remove]');if(rm){if(confirm('Eliminare la schedina?')){db.tickets.splice(Number(rm.dataset.remove),1);save()}return}
+const btn=e.target.closest('[data-match]');if(!btn)return;selected=btn.dataset.match;const m=db.tickets.flatMap(t=>t.eventi).find(x=>key(x)===selected),r=db.results[selected];$('matchName').textContent=(m.casa||m.home)+' – '+(m.trasferta||m.away);$('homeGoals').value=r?.home??0;$('awayGoals').value=r?.away??0;$('htHome').value=r?.htHome??'';$('htAway').value=r?.htAway??'';$('matchStatus').value=r?.status||'finished';$('editDialog').showModal()};
+$('resultForm').onsubmit=e=>{if(e.submitter?.value!=='save'||!selected)return;const h=Number($('homeGoals').value),a=Number($('awayGoals').value),hh=$('htHome').value,ha=$('htAway').value;if(h<0||a<0||!Number.isInteger(h)||!Number.isInteger(a)){e.preventDefault();return}db.results[selected]={home:h,away:a,htHome:hh===''?null:Number(hh),htAway:ha===''?null:Number(ha),status:$('matchStatus').value};save()};
+$('list').onchange=e=>{if(e.target.matches('[data-stake]')){db.tickets[Number(e.target.dataset.stake)].puntata=Math.max(0,Number(e.target.value)||0);save()}};
+$('clearBtn').onclick=()=>{if(confirm('Eliminare archivio e risultati?')){db={tickets:[],results:{}};save()}};
+$('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='scommesse2-archivio.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
+render();
