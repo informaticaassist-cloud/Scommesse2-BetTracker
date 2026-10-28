@@ -48,10 +48,10 @@ $('clearBtn').onclick=()=>{if(confirm('Eliminare archivio e risultati?')){db={ti
 $('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='scommesse2-archivio.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
 render();
 
-const LEAGUES={'seriea':'ita.1','serieaitaliana':'ita.1','premierleague':'eng.1','laliga':'esp.1','liga':'esp.1','bundesliga':'ger.1','ligue1':'fra.1','championsleague':'uefa.champions','uefachampionsleague':'uefa.champions'};
+const LEAGUES={'seriea':'ita.1','serieaitaliana':'ita.1','premierleague':'eng.1','laliga':'esp.1','liga':'esp.1','bundesliga':'ger.1','ligue1':'fra.1','championsleague':'uefa.champions','uefachampionsleague':'uefa.champions','eflcup':'eng.league_cup','carabaocup':'eng.league_cup','englishleaguecup':'eng.league_cup','coppaItalia':'ita.coppa_italia'};
 const TEAM_ALIASES={'internazionale':'inter','intermilan':'inter','acmilan':'milan','asroma':'roma','ssclazio':'lazio','napoli':'napoli','sscnapoli':'napoli','manchesterunited':'manutd','manutd':'manutd','manchestercity':'mancity','mancity':'mancity','parissaintgermain':'psg','psg':'psg','bayernmunich':'bayern','bayernmunchen':'bayern','bayern':'bayern','atleticomadrid':'atletico','atleticodemadrid':'atletico','atletico':'atletico','fcbarcelona':'barcelona','realmadridcf':'realmadrid','juventusfc':'juventus','arsenalfc':'arsenal','chelseafc':'chelsea','liverpoolfc':'liverpool','tottenhamhotspur':'tottenham'};
 const teamNorm=s=>{const n=norm(s);return TEAM_ALIASES[n]||n.replace(/^(fc|ac|as|ssc|ss|cf)/,'').replace(/(fc|cf)$/,'')};
-function eventDate(e){const d=String(e.data_partita||e.date||'').slice(0,10);return /^\\d{4}-\\d{2}-\\d{2}$/.test(d)?d.replace(/-/g,''):null}
+function eventDate(e){const d=String(e.data_partita||e.date||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(d)?d.replace(/-/g,''):null}
 function leagueOf(e){const s=norm(e.campionato||e.league||'');return LEAGUES[s]||null}
 function statusOf(t){const n=String(t?.name||'').toLowerCase(),st=String(t?.state||'').toLowerCase();if(st==='post'||/final|full time|finished|terminat/.test(n))return 'finished';if(/postponed|cancelled|canceled|abandoned/.test(n))return 'void';if(st==='in'||/half|live|progress/.test(n))return 'live';return 'scheduled'}
 function parseGame(g){const c=g?.competitions?.[0];if(!c)return null;const home=c.competitors?.find(x=>x.homeAway==='home'),away=c.competitors?.find(x=>x.homeAway==='away');if(!home||!away)return null;const hs=c.details?.find(x=>/halftime/i.test(x?.type?.text||''));return {id:g.id,date:String(g.date||'').slice(0,10).replace(/-/g,''),homeNames:[home.team?.displayName,home.team?.shortDisplayName,home.team?.name,home.team?.abbreviation],awayNames:[away.team?.displayName,away.team?.shortDisplayName,away.team?.name,away.team?.abbreviation],home:Number(home.score||0),away:Number(away.score||0),status:statusOf(c.status?.type||g.status?.type),minute:g.status?.displayClock||g.status?.type?.shortDetail||'',htHome:null,htAway:null}}
@@ -61,12 +61,12 @@ async function updateScores(manual=false){
 if(syncing)return;if(!db.tickets.length){$('notice').textContent='Importa prima una schedina';return}
 const events=[...new Map(db.tickets.flatMap(t=>t.eventi).map(e=>[key(e),e])).values()];
 const groups=new Map();for(const e of events){const league=leagueOf(e),date=eventDate(e);if(!league||!date)continue;const id=league+'|'+date;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(e)}
-if(!groups.size){$('notice').textContent='Nessuna partita con campionato e data riconoscibili';return}
-syncing=true;$('refreshBtn').disabled=true;$('notice').textContent='Aggiornamento risultati in corso…';let changed=0,errors=0,found=0;
+if(!groups.size){$('notice').textContent='Nessuna partita riconosciuta: controlla campionato e formato data (AAAA-MM-GG)';return}
+syncing=true;$('refreshBtn').disabled=true;$('notice').textContent='Aggiornamento risultati in corso…';let changed=0,errors=0,found=0;const unsupported=events.filter(e=>!leagueOf(e)||!eventDate(e)).length;
 for(const [group,es] of groups){const [league,date]=group.split('|');try{
 const url='https://site.api.espn.com/apis/site/v2/sports/soccer/'+league+'/scoreboard?dates='+date+'&limit=100';
-const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw Error('HTTP '+response.status);
-const data=await response.json();if(!Array.isArray(data.events))throw Error('Risposta non valida');
+const response=await (window.Capacitor?.Plugins?.CapacitorHttp?.get ? window.Capacitor.Plugins.CapacitorHttp.get({url,headers:{Accept:'application/json'}}) : fetch(url,{cache:'no-store'}));if(response.status<200||response.status>=300)throw Error('HTTP '+response.status);
+const data=typeof response.json==='function'?await response.json():response.data;if(!Array.isArray(data.events))throw Error('Risposta non valida');
 const games=data.events.map(parseGame).filter(Boolean);
 for(const e of es){const candidates=games.filter(g=>matches(e,g));if(candidates.length!==1)continue;found++;const g=candidates[0],k=key(e),old=db.results[k];if(old?.status==='finished'&&g.status!=='finished')continue;
 const r={home:g.home,away:g.away,status:g.status,htHome:old?.htHome??null,htAway:old?.htAway??null,minute:g.minute,source:'ESPN',updatedAt:new Date().toISOString()};
@@ -74,7 +74,7 @@ if(JSON.stringify([old?.home,old?.away,old?.status,old?.minute])!==JSON.stringif
 db.results[k]=r;
 }
 }catch(err){errors++;console.warn('ESPN',group,err)}}
-lastSync=Date.now();$('lastSync').textContent='Ultimo controllo: '+new Date(lastSync).toLocaleTimeString('it-IT');$('notice').textContent='Partite trovate: '+found+' · Risultati modificati: '+changed+(errors?' · Errori fonte: '+errors:'')+(errors===groups.size?' · Verifica la connessione o il servizio':'');save();syncing=false;$('refreshBtn').disabled=false;
+lastSync=Date.now();$('lastSync').textContent='Ultimo controllo: '+new Date(lastSync).toLocaleTimeString('it-IT');$('notice').textContent='Partite trovate: '+found+' · Non supportate: '+unsupported+' · Risultati modificati: '+changed+(errors?' · Errori fonte: '+errors:'')+(errors===groups.size?' · Verifica la connessione o il servizio':'');save();syncing=false;$('refreshBtn').disabled=false;
 }
 $('refreshBtn').onclick=()=>updateScores(true);
 const autoTimer=setInterval(()=>{if($('autoRefresh').checked&&!document.hidden&&Date.now()-lastSync>=60000)updateScores()},60000);
