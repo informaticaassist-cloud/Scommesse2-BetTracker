@@ -13,7 +13,7 @@ if(r.status==='void')return 'void';
 if(r.status!=='finished')return 'unknown';
 const h=Number(r.home),a=Number(r.away),total=h+a,m=String(e.mercato||e.market||'').trim().toUpperCase().replace(/,/g,'.').replace(/\s+/g,' ');
 let ok;
-if(m==='1')ok=h>a;else if(m==='X')ok=h===a;else if(m==='2')ok=h<a;else if(m==='1X')ok=h>=a;else if(m==='X2')ok=h<=a;else if(m==='12')ok=h!==a;
+if(m==='1')ok=h>a;else if(m==='X')ok=h===a;else if(m==='2')ok=h<a;else if(/^DNB\s*[12]$/.test(m)||/^[12]\s*DNB$/.test(m)){if(h===a)return 'void';const side=m.includes('1')?1:2;ok=side===1?h>a:a>h;}else if(m==='1X')ok=h>=a;else if(m==='X2')ok=h<=a;else if(m==='12')ok=h!==a;
 else if(['GOAL','GG','BTTS SI','BTTS SÌ'].includes(m))ok=h>0&&a>0;
 else if(['NO GOAL','NOGOAL','NG','BTTS NO'].includes(m))ok=h===0||a===0;
 else{let z=m.match(/^(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);if(z)ok=z[1]==='OVER'?total>Number(z[2]):total<Number(z[2]);
@@ -67,6 +67,37 @@ function leagueOf(e){const s=norm(e.campionato||e.league||'');return LEAGUES[s]|
 function statusOf(t){const n=String(t?.name||'').toLowerCase(),st=String(t?.state||'').toLowerCase();if(st==='post'||/final|full time|finished|terminat/.test(n))return 'finished';if(/postponed|cancelled|canceled|abandoned/.test(n))return 'void';if(st==='in'||/half|live|progress/.test(n))return 'live';return 'scheduled'}
 function parseGame(g){const c=g?.competitions?.[0];if(!c)return null;const home=c.competitors?.find(x=>x.homeAway==='home'),away=c.competitors?.find(x=>x.homeAway==='away');if(!home||!away)return null;const hs=c.details?.find(x=>/halftime/i.test(x?.type?.text||''));return {id:g.id,date:String(g.date||'').slice(0,10).replace(/-/g,''),homeNames:[home.team?.displayName,home.team?.shortDisplayName,home.team?.name,home.team?.abbreviation],awayNames:[away.team?.displayName,away.team?.shortDisplayName,away.team?.name,away.team?.abbreviation],home:Number(home.score||0),away:Number(away.score||0),status:statusOf(c.status?.type||g.status?.type),minute:g.status?.displayClock||g.status?.type?.shortDetail||'',htHome:null,htAway:null}}
 function matches(e,g){const d=eventDate(e);if(!d||Math.abs((Date.UTC(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6,8))-Date.UTC(+g.date.slice(0,4),+g.date.slice(4,6)-1,+g.date.slice(6,8)))/86400000)>1)return false;const a=teamNorm(e.casa||e.home),b=teamNorm(e.trasferta||e.away);return g.homeNames.some(n=>teamNorm(n)===a)&&g.awayNames.some(n=>teamNorm(n)===b)}
+
+// Fonte secondaria: TheSportsDB. Ricerca mirata soltanto sugli incontri rimasti senza risultato.
+const secondaryCache=new Map();
+async function jsonFromSource(url){
+const native=window.Capacitor?.Plugins?.CapacitorHttp?.get;
+const response=native?await native({url,headers:{Accept:'application/json'}}):await fetch(url,{cache:'no-store'});
+if(response.status<200||response.status>=300)throw Error('HTTP '+response.status);
+return typeof response.json==='function'?await response.json():response.data;
+}
+function secondaryGame(x){
+if(!x||String(x.strSport||'').toLowerCase()!=='soccer')return null;
+const home=Number(x.intHomeScore),away=Number(x.intAwayScore);
+if(!Number.isFinite(home)||!Number.isFinite(away)||x.intHomeScore==null||x.intAwayScore==null)return null;
+const d=String(x.dateEvent||'').replace(/-/g,'');
+return {date:d,homeNames:[x.strHomeTeam],awayNames:[x.strAwayTeam],home,away,status:/postponed|cancelled|abandoned/i.test(x.strStatus||'')?'void':'finished',source:'TheSportsDB'};
+}
+async function secondaryLookup(e){
+const date=eventDate(e);if(!date)return null;
+const h=String(e.casa||e.home||'').trim(),a=String(e.trasferta||e.away||'').trim();
+const query=h+'_vs_'+a,cacheKey=norm(query)+'|'+date;
+const cached=secondaryCache.get(cacheKey);
+if(cached&&Date.now()-cached.at<10*60*1000)return cached.game;
+const iso=date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6,8);
+const url='https://www.thesportsdb.com/api/v1/json/123/searchevents.php?e='+encodeURIComponent(query)+'&d='+iso;
+const data=await jsonFromSource(url);
+const games=(Array.isArray(data?.event)?data.event:Array.isArray(data?.events)?data.events:[]).map(secondaryGame).filter(Boolean);
+const candidates=games.filter(g=>matches(e,g));
+const game=candidates.length===1?candidates[0]:null;
+secondaryCache.set(cacheKey,{at:Date.now(),game});
+return game;
+}
 let syncing=false,lastSync=0;
 async function updateScores(manual=false){
 if(syncing)return;if(!db.tickets.length){$('notice').textContent='Importa prima una schedina';return}
@@ -86,7 +117,16 @@ if(JSON.stringify([old?.home,old?.away,old?.status,old?.minute])!==JSON.stringif
 db.results[k]=r;
 }
 }catch(err){errors++;console.warn('ESPN',group,err)}}
-lastSync=Date.now();$('lastSync').textContent='Ultimo controllo: '+new Date(lastSync).toLocaleTimeString('it-IT');$('notice').textContent='Partite trovate: '+found+' · Non supportate: '+unsupported+' · Non trovate: '+(events.length-matchedKeys.size-unsupported)+' · Risultati modificati: '+changed+(errors?' · Errori fonte: '+errors:'')+(errors===groups.size?' · Verifica la connessione o il servizio':'');save();syncing=false;$('refreshBtn').disabled=false;
+let fallbackFound=0,fallbackErrors=0;
+const remaining=events.filter(e=>eventDate(e)&&!matchedKeys.has(key(e))&&db.results[key(e)]?.status!=='finished');
+for(const e of remaining.slice(0,8)){
+try{const g=await secondaryLookup(e);if(!g)continue;
+const k=key(e),old=db.results[k];if(old?.status==='finished')continue;
+db.results[k]={home:g.home,away:g.away,status:g.status,htHome:old?.htHome??null,htAway:old?.htAway??null,source:'TheSportsDB',updatedAt:new Date().toISOString()};
+matchedKeys.add(k);fallbackFound++;changed++;
+}catch(err){fallbackErrors++;console.warn('TheSportsDB',key(e),err)}
+}
+lastSync=Date.now();$('lastSync').textContent='Ultimo controllo: '+new Date(lastSync).toLocaleTimeString('it-IT');$('notice').textContent='ESPN: '+found+' · Seconda fonte: '+fallbackFound+' · Non supportate: '+unsupported+' · Non trovate: '+(events.length-matchedKeys.size-unsupported)+' · Risultati modificati: '+changed+(errors?' · Errori ESPN: '+errors:'')+(fallbackErrors?' · Errori seconda fonte: '+fallbackErrors:'')+(errors===groups.size?' · Verifica la connessione o il servizio':'');save();syncing=false;$('refreshBtn').disabled=false;
 }
 $('refreshBtn').onclick=()=>updateScores(true);
 const autoTimer=setInterval(()=>{if($('autoRefresh').checked&&!document.hidden&&Date.now()-lastSync>=60000)updateScores()},60000);
