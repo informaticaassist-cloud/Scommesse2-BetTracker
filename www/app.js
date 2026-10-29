@@ -60,7 +60,7 @@ const LEAGUES={
 'brasileiraoseriea':'bra.1','brasileirao':'bra.1','argentinaprimera':'arg.1','mls':'usa.1','ligamx':'mex.1','saudiproleague':'ksa.1'
 };
 const EXTRA_LEAGUES=['eng.league_cup','eng.fa','ita.coppa_italia','esp.copa_del_rey','ger.dfb_pokal','fra.coupe_de_france','uefa.champions','uefa.europa','uefa.europa.conf','eng.1','ita.1','esp.1','ger.1','fra.1'];
-const TEAM_ALIASES={'internazionale':'inter','intermilan':'inter','acmilan':'milan','asroma':'roma','ssclazio':'lazio','napoli':'napoli','sscnapoli':'napoli','manchesterunited':'manutd','manutd':'manutd','manchestercity':'mancity','mancity':'mancity','parissaintgermain':'psg','psg':'psg','bayernmunich':'bayern','bayernmunchen':'bayern','bayern':'bayern','atleticomadrid':'atletico','atleticodemadrid':'atletico','atletico':'atletico','fcbarcelona':'barcelona','realmadridcf':'realmadrid','juventusfc':'juventus','arsenalfc':'arsenal','chelseafc':'chelsea','liverpoolfc':'liverpool','tottenhamhotspur':'tottenham','rbleipzig':'leipzig','rblipsia':'leipzig','rblipsia':'leipzig','leipzig':'leipzig','rotweissessen':'essen','rotweissessen':'essen','rwessen':'essen','fleetwoodtown':'fleetwood','fleetwood':'fleetwood','arsenal':'arsenal'};
+const TEAM_ALIASES={'internazionale':'inter','intermilan':'inter','acmilan':'milan','asroma':'roma','ssclazio':'lazio','napoli':'napoli','sscnapoli':'napoli','manchesterunited':'manutd','manutd':'manutd','manchestercity':'mancity','mancity':'mancity','parissaintgermain':'psg','psg':'psg','bayernmunich':'bayern','bayernmunchen':'bayern','bayern':'bayern','atleticomadrid':'atletico','atleticodemadrid':'atletico','atletico':'atletico','fcbarcelona':'barcelona','realmadridcf':'realmadrid','juventusfc':'juventus','arsenalfc':'arsenal','chelseafc':'chelsea','liverpoolfc':'liverpool','tottenhamhotspur':'tottenham','rbleipzig':'leipzig','rblipsia':'leipzig','rblipsia':'leipzig','leipzig':'leipzig','rotweissessen':'essen','rotweissessen':'essen','rwessen':'essen','fleetwoodtown':'fleetwood','fleetwood':'fleetwood','arsenal':'arsenal','werderbrema':'werderbremen','svwerderbremen':'werderbremen','werderbremen':'werderbremen','borussiadortmund':'dortmund','bvbdortmund':'dortmund','dortmund':'dortmund'};
 const teamNorm=s=>{const n=norm(s);return TEAM_ALIASES[n]||n.replace(/^(fc|ac|as|ssc|ss|cf)/,'').replace(/(fc|cf)$/,'')};
 function eventDate(e){const d=String(e.data_partita||e.date||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(d)?d.replace(/-/g,''):null}
 function leagueOf(e){const s=norm(e.campionato||e.league||'');return LEAGUES[s]||null}
@@ -90,9 +90,8 @@ const query=h+'_vs_'+a,cacheKey=norm(query)+'|'+date;
 const cached=secondaryCache.get(cacheKey);
 if(cached&&Date.now()-cached.at<10*60*1000)return cached.game;
 const iso=date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6,8);
-const url='https://www.thesportsdb.com/api/v1/json/123/searchevents.php?e='+encodeURIComponent(query)+'&d='+iso;
-const data=await jsonFromSource(url);
-const games=(Array.isArray(data?.event)?data.event:Array.isArray(data?.events)?data.events:[]).map(secondaryGame).filter(Boolean);
+const queries=[query,teamNorm(h)+'_vs_'+teamNorm(a),h.replace(/Brema/ig,'Bremen')+'_vs_'+a.replace(/Brema/ig,'Bremen'),h+'_vs_'+a.replace(/Brema/ig,'Bremen')];
+let games=[];for(const q of [...new Set(queries)]){const url='https://www.thesportsdb.com/api/v1/json/123/searchevents.php?e='+encodeURIComponent(q);const data=await jsonFromSource(url);games.push(...(Array.isArray(data?.event)?data.event:Array.isArray(data?.events)?data.events:[]).map(secondaryGame).filter(Boolean));if(games.some(g=>matches(e,g)))break;}
 const candidates=games.filter(g=>matches(e,g));
 const game=candidates.length===1?candidates[0]:null;
 secondaryCache.set(cacheKey,{at:Date.now(),game});
