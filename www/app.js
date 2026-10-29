@@ -7,20 +7,49 @@ const fmt=x=>Number(x).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFr
 const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const key=e=>e.id_partita||e.match_id||[e.data_partita||e.date||'',norm(e.casa||e.home),norm(e.trasferta||e.away)].join('|');
 const labels={won:'🟢 Vinta',lost:'🔴 Persa',pending:'🟡 In attesa',void:'🔵 Annullata',unknown:'⚪ Da verificare'};
+function evaluateSingleMarket(m,r){
+const h=Number(r.home),a=Number(r.away),total=h+a;
+if(m==='1')return h>a;
+if(m==='X')return h===a;
+if(m==='2')return h<a;
+if(/^DNB\s*[12]$/.test(m)||/^[12]\s*DNB$/.test(m)){
+  if(h===a)return 'void';
+  const side=m.includes('1')?1:2;
+  return side===1?h>a:a>h;
+}
+if(m==='1X')return h>=a;
+if(m==='X2')return h<=a;
+if(m==='12')return h!==a;
+if(['GOAL','GG','BTTS SI','BTTS SÌ'].includes(m))return h>0&&a>0;
+if(['NO GOAL','NOGOAL','NG','BTTS NO'].includes(m))return h===0||a===0;
+let z=m.match(/^(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);
+if(z)return z[1]==='OVER'?total>Number(z[2]):total<Number(z[2]);
+z=m.match(/^MULTIGOL\s*(\d+)\s*[-–]\s*(\d+)$/);
+if(z)return total>=Number(z[1])&&total<=Number(z[2]);
+z=m.match(/^(?:1T|HT)\s+(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);
+if(z&&r.htHome!=null&&r.htAway!=null){
+  const t=Number(r.htHome)+Number(r.htAway);
+  return z[1]==='OVER'?t>Number(z[2]):t<Number(z[2]);
+}
+return undefined;
+}
 function evaluate(e,r){
 if(!r||r.status==='scheduled'||r.status==='live')return 'pending';
 if(r.status==='void')return 'void';
 if(r.status!=='finished')return 'unknown';
-const h=Number(r.home),a=Number(r.away),total=h+a,m=String(e.mercato||e.market||'').trim().toUpperCase().replace(/,/g,'.').replace(/\s+/g,' ');
-let ok;
-if(m==='1')ok=h>a;else if(m==='X')ok=h===a;else if(m==='2')ok=h<a;else if(/^DNB\s*[12]$/.test(m)||/^[12]\s*DNB$/.test(m)){if(h===a)return 'void';const side=m.includes('1')?1:2;ok=side===1?h>a:a>h;}else if(m==='1X')ok=h>=a;else if(m==='X2')ok=h<=a;else if(m==='12')ok=h!==a;
-else if(['GOAL','GG','BTTS SI','BTTS SÌ'].includes(m))ok=h>0&&a>0;
-else if(['NO GOAL','NOGOAL','NG','BTTS NO'].includes(m))ok=h===0||a===0;
-else{let z=m.match(/^(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);if(z)ok=z[1]==='OVER'?total>Number(z[2]):total<Number(z[2]);
-else{z=m.match(/^MULTIGOL\s*(\d+)\s*[-–]\s*(\d+)$/);if(z)ok=total>=Number(z[1])&&total<=Number(z[2]);
-else{z=m.match(/^(?:1T|HT)\s+(OVER|UNDER)\s*(\d+(?:\.\d+)?)$/);if(z&&r.htHome!=null&&r.htAway!=null){const t=Number(r.htHome)+Number(r.htAway);ok=z[1]==='OVER'?t>Number(z[2]):t<Number(z[2]);}}}}
-return ok===undefined?'unknown':ok?'won':'lost';
+if(!Number.isInteger(Number(r.home))||!Number.isInteger(Number(r.away))||Number(r.home)<0||Number(r.away)<0)return 'unknown';
+const market=String(e.mercato||e.market||'').trim().toUpperCase().replace(/,/g,'.').replace(/\s+/g,' ');
+const parts=market.split(/\s*\+\s*/);
+if(parts.some(p=>!p))return 'unknown';
+const outcomes=parts.map(p=>evaluateSingleMarket(p,r));
+// A lost leg makes a combined selection lost, even if another leg is unresolved.
+if(outcomes.includes(false))return 'lost';
+if(outcomes.includes(undefined))return 'unknown';
+// Void legs inside combinations depend on bookmaker settlement rules.
+if(outcomes.includes('void'))return parts.length===1?'void':'unknown';
+return 'won';
 }
+
 function stateOf(s){if(s.includes('lost'))return 'lost';if(s.includes('unknown'))return 'unknown';if(s.includes('pending'))return 'pending';if(s.every(x=>x==='void'))return 'void';return 'won'}
 function save(){localStorage.setItem(KEY,JSON.stringify(db));render()}
 function render(){
