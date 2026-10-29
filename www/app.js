@@ -12,6 +12,18 @@ if(!r||r.status==='scheduled'||r.status==='live')return 'pending';
 if(r.status==='void')return 'void';
 if(r.status!=='finished')return 'unknown';
 const h=Number(r.home),a=Number(r.away),total=h+a,m=String(e.mercato||e.market||'').trim().toUpperCase().replace(/,/g,'.').replace(/\s+/g,' ');
+// Mercati combinati: ogni componente deve essere verificabile e vincente.
+if(/\s*\+\s*/.test(m)){
+const parts=m.split(/\s*\+\s*/).map(x=>x.trim()).filter(Boolean);
+if(parts.length>1){
+const outcomes=parts.map(part=>evaluate({...e,mercato:part,market:part},r));
+if(outcomes.includes('lost'))return 'lost';
+if(outcomes.includes('unknown'))return 'unknown';
+if(outcomes.includes('pending'))return 'pending';
+if(outcomes.every(x=>x==='void'))return 'void';
+return 'won';
+}
+}
 let ok;
 if(m==='1')ok=h>a;else if(m==='X')ok=h===a;else if(m==='2')ok=h<a;else if(/^DNB\s*[12]$/.test(m)||/^[12]\s*DNB$/.test(m)){if(h===a)return 'void';const side=m.includes('1')?1:2;ok=side===1?h>a:a>h;}else if(m==='1X')ok=h>=a;else if(m==='X2')ok=h<=a;else if(m==='12')ok=h!==a;
 else if(['GOAL','GG','BTTS SI','BTTS SÌ'].includes(m))ok=h>0&&a>0;
