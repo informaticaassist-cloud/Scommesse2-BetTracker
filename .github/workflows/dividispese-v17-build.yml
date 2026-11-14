@@ -1,0 +1,68 @@
+name: Build DividiSpese v1.7
+
+on:
+  push:
+    branches:
+      - dividispese-v17-build
+    paths:
+      - "dividispese-build/**"
+      - ".github/workflows/dividispese-v17-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Recreate source archive
+        shell: bash
+        run: |
+          cat dividispese-build/v17_chunk_*.txt > /tmp/v17.b64
+          base64 -d /tmp/v17.b64 > /tmp/DividiSpese_v1.7.zip
+          unzip -t /tmp/DividiSpese_v1.7.zip
+          mkdir -p /tmp/dividispese-src
+          unzip -q /tmp/DividiSpese_v1.7.zip -d /tmp/dividispese-src
+
+      - name: Install and build web app
+        working-directory: /tmp/dividispese-src/gestione-spese-capacitor
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Create and sync Android
+        working-directory: /tmp/dividispese-src/gestione-spese-capacitor
+        run: |
+          node ./node_modules/@capacitor/cli/bin/capacitor add android
+          node ./node_modules/@capacitor/cli/bin/capacitor sync android
+
+      - name: Build debug APK
+        working-directory: /tmp/dividispese-src/gestione-spese-capacitor/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Stage APK
+        run: |
+          cp /tmp/dividispese-src/gestione-spese-capacitor/android/app/build/outputs/apk/debug/app-debug.apk DividiSpese_v1.7.apk
+          test -s DividiSpese_v1.7.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DividiSpese-v1.7-APK
+          path: DividiSpese_v1.7.apk
+          if-no-files-found: error
+          retention-days: 1
